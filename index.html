@@ -1,121 +1,103 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8">
-  <title>Data Harga Saham Yahoo</title>
+  <meta charset="UTF-8" />
+  <title>Harga Saham Yahoo</title>
   <style>
     body { font-family: sans-serif; padding: 20px; }
-    input[type="text"] {
-      width: 1220px; padding: 8px; font-size: 16px;
-    }
-    button {
-      padding: 8px 12px; font-size: 16px; margin-left: 10px;
-    }
-    #status {
-      background: #f3faff;
-      border: 1px solid #99ccff;
-      padding: 10px;
-      color: #0066cc;
-      margin-top: 10px;
-      font-weight: bold;
-    }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-    th, td { border: 1px solid #999; padding: 8px; text-align: center; }
+    table { border-collapse: collapse; margin-top: 20px; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 5px 10px; text-align: center; }
     th { background: #f0f0f0; }
+    #log { margin-top: 10px; font-size: 14px; color: green; }
+    #kodeList { width: 100%; padding: 5px; font-size: 16px; }
   </style>
 </head>
 <body>
-  <h2>📈 Data OHLCV Saham dari Yahoo Finance</h2>
-  <div>
-    <input type="text" id="input-kode" placeholder="Contoh: BBCA, BBRI, GOOD, ANTM">
-    <button id="btn-fetch">Ambil Data</button>
-  </div>
-
-  <div id="status"></div>
-  <div id="result"></div>
+  <h2>Ambil Harga Saham dari Yahoo Finance 📈</h2>
+  <label for="kodeList">Daftar Kode Saham (pisahkan dengan koma):</label><br />
+  <input id="kodeList" type="text" placeholder="Contoh: BBCA, BBRI, GOOD, ANTM" /><br /><br />
+  <button onclick="ambilData()">Ambil Data</button>
+  <div id="log">🔄 Siap ambil data...</div>
+  <div id="tabel"></div>
 
   <script>
-    document.getElementById("btn-fetch").addEventListener("click", async () => {
-      const input = document.getElementById("input-kode").value;
-      if (!input) return alert("Masukkan minimal 1 kode saham.");
+    const proxies = [
+      "https://api.cors.lol/?url=",
+      "https://thingproxy.freeboard.io/fetch/",
+	  "https://api.allorigins.win/raw?url="
+    ];
 
-      const list = input.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
-      const results = [];
-      let counter = 0;
+    let currentProxyIndex = 0;
 
-      const statusDiv = document.getElementById("status");
-      const resultDiv = document.getElementById("result");
-      resultDiv.innerHTML = "";
-      statusDiv.innerText = "⏳ Memuat data saham...";
-
-      for (let kode of list) {
-        await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 500));
-
+    async function fetchSaham(kode) {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${kode}.JK?interval=1d&range=1d`;
+      while (currentProxyIndex < proxies.length) {
+        const proxyUrl = proxies[currentProxyIndex] + encodeURIComponent(url);
         try {
-          const url = `https://api.cors.lol/?url=https://query1.finance.yahoo.com/v8/finance/chart/${kode}.JK?interval=1d&range=1d`;
-          const res = await fetch(url);
+          const res = await fetch(proxyUrl);
+          if (!res.ok) throw new Error(res.statusText);
           const json = await res.json();
-          const d = json.chart.result[0];
-          const q = d.indicators.quote[0];
-          const ts = d.timestamp[0];
+          return json;
+        } catch (e) {
+          console.warn(`❌ ${kode}: gagal via proxy ${currentProxyIndex + 1}`);
+          currentProxyIndex++;
+        }
+      }
+      throw new Error(`Gagal ambil data ${kode} dari semua proxy`);
+    }
 
-          const waktu = new Date(ts * 1000);
-          const tanggal = waktu.toLocaleDateString("id-ID", { day: "2-digit", month: "2-digit" });
-          const jam = waktu.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false });
+    function formatWaktu(unix) {
+      const d = new Date(unix * 1000);
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const hour = String(d.getHours()).padStart(2, "0");
+      const minute = String(d.getMinutes()).padStart(2, "0");
+      return `${day}-${month} ${hour}:${minute}`;
+    }
 
-          const open = q.open[0];
-          const close = q.close[0];
-          const high = q.high[0];
-          const low = q.low[0];
-          const volume = (q.volume[0] / 100).toFixed(0);
+    async function ambilData() {
+      const daftar = document.getElementById("kodeList").value
+        .split(",")
+        .map(k => k.trim().toUpperCase())
+        .filter(k => k);
+      const log = document.getElementById("log");
+      const tabel = document.getElementById("tabel");
+      tabel.innerHTML = "";
+      let html = "<table><thead><tr><th>Kode</th><th>Waktu</th><th>Close</th><th>Open</th><th>+/-</th><th>High</th><th>Low</th><th>Delta</th><th>Volume</th></tr></thead><tbody>";
+      let sukses = 0;
+      currentProxyIndex = 0;
 
-          results.push({
-            kode,
-            date: `${tanggal}-${jam}`,
-            close,
-            open,
-            change: (close - open).toFixed(2),
-            high,
-            low,
-            delta: (high - low).toFixed(2),
-            volume
-          });
+      for (let i = 0; i < daftar.length; i++) {
+        const kode = daftar[i];
+        try {
+          const data = await fetchSaham(kode);
+          const hasil = data.chart.result[0];
+          const o = hasil.indicators.quote[0].open[0];
+          const c = hasil.indicators.quote[0].close[0];
+          const h = hasil.indicators.quote[0].high[0];
+          const l = hasil.indicators.quote[0].low[0];
+          const v = hasil.indicators.quote[0].volume[0];
+          const t = hasil.timestamp[0];
 
-          counter++;
-          statusDiv.innerText = `✅ ${counter} data berhasil diambil...`;
+          const delta = h - l;
+          const plusmin = c - o;
+          const tgl = formatWaktu(t);
+          const lot = Math.round(v / 100);
 
-        } catch {
-          results.push({ kode, error: true });
+          html += `<tr><td>${kode}</td><td>${tgl}</td><td>${c}</td><td>${o}</td><td>${plusmin}</td><td>${h}</td><td>${l}</td><td>${delta}</td><td>${lot}</td></tr>`;
+          sukses++;
+          log.textContent = `✅ ${sukses} data berhasil diambil...`;
+        } catch (e) {
+          html += `<tr><td colspan="9">❌ ${kode}: ${e.message}</td></tr>`;
         }
       }
 
-      statusDiv.innerText = `✅ Proses selesai (${counter} data berhasil).`;
+      html += "</tbody></table>";
+      tabel.innerHTML = html;
+      log.textContent += " ✅ Selesai!";
 
-      // Buat tabel hasil
-      const tableHTML = `
-        <table id="ohlcv-table">
-          <thead>
-            <tr>
-              <th>Kode</th><th>Waktu</th><th>Close</th><th>Open</th><th>+/-</th>
-              <th>High</th><th>Low</th><th>Delta</th><th>Volume (lot)</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${results.map(r => r.error
-              ? `<tr><td colspan="9" style="color:red;">${r.kode}: gagal fetch</td></tr>`
-              : `<tr>
-                  <td>${r.kode}</td><td>${r.date}</td><td>${r.close}</td><td>${r.open}</td>
-                  <td>${r.change}</td><td>${r.high}</td><td>${r.low}</td><td>${r.delta}</td><td>${r.volume}</td>
-                </tr>`
-            ).join("")}
-          </tbody>
-        </table>
-        <p><em>✅ Data otomatis disalin ke clipboard</em></p>
-      `;
-      resultDiv.innerHTML = tableHTML;
-
-      // Copy ke clipboard
-      const rows = document.querySelectorAll("#ohlcv-table tr");
+      // 🧠 Otomatis salin hasil ke clipboard (TSV)
+      const rows = tabel.querySelectorAll("tr");
       let text = "";
       rows.forEach(row => {
         const cols = row.querySelectorAll("th, td");
@@ -123,13 +105,10 @@
         text += rowText + "\n";
       });
 
-      try {
-        await navigator.clipboard.writeText(text);
-        alert("✅ Data berhasil disalin ke clipboard!");
-      } catch (e) {
-        alert("❌ Gagal salin ke clipboard: " + e.message);
-      }
-    });
+      navigator.clipboard.writeText(text)
+        .then(() => log.textContent += " 📋 Disalin ke clipboard!")
+        .catch(err => log.textContent += " ❌ Gagal salin: " + err);
+    }
   </script>
 </body>
 </html>
