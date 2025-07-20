@@ -15,16 +15,16 @@
 <body>
   <h2>Ambil Harga Saham dari Yahoo Finance 📈</h2>
   <label for="kodeList">Daftar Kode Saham (pisahkan dengan koma):</label><br />
-  <input id="kodeList" type="text" placeholder="Contoh: BBCA, BBRI, GOOD, ANTM" /><br /><br />
+  <input id="kodeList" type="text" placeholder="Contoh: BBCA, BBRI, ANTM, GOTO" /><br /><br />
   <button onclick="ambilData()">Ambil Data</button>
   <div id="log">🔄 Siap ambil data...</div>
   <div id="tabel"></div>
 
   <script>
     const proxies = [
-      "https://api.cors.lol/?url=",
-      "https://thingproxy.freeboard.io/fetch/",
-	  "https://api.allorigins.win/raw?url="
+      { name: "AllOrigins", url: "https://api.allorigins.win/raw?url=" },
+      { name: "ThingProxy", url: "https://thingproxy.freeboard.io/fetch/" },
+      { name: "CorsLOL", url: "https://api.cors.lol/?url=" }
     ];
 
     let currentProxyIndex = 0;
@@ -32,14 +32,15 @@
     async function fetchSaham(kode) {
       const url = `https://query1.finance.yahoo.com/v8/finance/chart/${kode}.JK?interval=1d&range=1d`;
       while (currentProxyIndex < proxies.length) {
-        const proxyUrl = proxies[currentProxyIndex] + encodeURIComponent(url);
+        const proxy = proxies[currentProxyIndex];
+        const proxyUrl = proxy.url + encodeURIComponent(url);
         try {
           const res = await fetch(proxyUrl);
           if (!res.ok) throw new Error(res.statusText);
           const json = await res.json();
-          return json;
+          return { data: json, proxyName: proxy.name };
         } catch (e) {
-          console.warn(`❌ ${kode}: gagal via proxy ${currentProxyIndex + 1}`);
+          console.warn(`❌ ${kode}: gagal via ${proxy.name}`);
           currentProxyIndex++;
         }
       }
@@ -63,15 +64,16 @@
       const log = document.getElementById("log");
       const tabel = document.getElementById("tabel");
       tabel.innerHTML = "";
-      let html = "<table><thead><tr><th>Kode</th><th>Waktu</th><th>Close</th><th>Open</th><th>+/-</th><th>High</th><th>Low</th><th>Delta</th><th>Volume</th></tr></thead><tbody>";
+      let html = "<table><thead><tr><th>Kode</th><th>Waktu</th><th>Close</th><th>Open</th><th>+/-</th><th>High</th><th>Low</th><th>Delta</th><th>Volume</th><th>Proxy</th></tr></thead><tbody>";
       let sukses = 0;
       currentProxyIndex = 0;
 
       for (let i = 0; i < daftar.length; i++) {
         const kode = daftar[i];
         try {
-          const data = await fetchSaham(kode);
-          const hasil = data.chart.result[0];
+          const result = await fetchSaham(kode);
+          const hasil = result.data.chart.result[0];
+          const proxyUsed = result.proxyName;
           const o = hasil.indicators.quote[0].open[0];
           const c = hasil.indicators.quote[0].close[0];
           const h = hasil.indicators.quote[0].high[0];
@@ -84,11 +86,11 @@
           const tgl = formatWaktu(t);
           const lot = Math.round(v / 100);
 
-          html += `<tr><td>${kode}</td><td>${tgl}</td><td>${c}</td><td>${o}</td><td>${plusmin}</td><td>${h}</td><td>${l}</td><td>${delta}</td><td>${lot}</td></tr>`;
+          html += `<tr><td>${kode}</td><td>${tgl}</td><td>${c}</td><td>${o}</td><td>${plusmin}</td><td>${h}</td><td>${l}</td><td>${delta}</td><td>${lot}</td><td>${proxyUsed}</td></tr>`;
           sukses++;
           log.textContent = `✅ ${sukses} data berhasil diambil...`;
         } catch (e) {
-          html += `<tr><td colspan="9">❌ ${kode}: ${e.message}</td></tr>`;
+          html += `<tr><td colspan="10">❌ ${kode}: ${e.message}</td></tr>`;
         }
       }
 
@@ -96,7 +98,7 @@
       tabel.innerHTML = html;
       log.textContent += " ✅ Selesai!";
 
-      // 🧠 Otomatis salin hasil ke clipboard (TSV)
+      // Salin hasil ke clipboard (tab-delimited)
       const rows = tabel.querySelectorAll("tr");
       let text = "";
       rows.forEach(row => {
